@@ -1,0 +1,4 @@
+firebase-admin==6.3.0
+streamlit==1.32.2
+pandas==2.2.1
+PyQt5
