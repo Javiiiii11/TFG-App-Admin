@@ -6,12 +6,17 @@ from firebase_admin import credentials, firestore
 import threading
 import time
 
+
+
 class SplashScreen(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("Cargando GymRace")
+        # self.title("Cargando GymRace")
+        self.title("")
         self.geometry("400x300")
         self.overrideredirect(True)  # Quitar bordes de ventana
+        self.resizable(False, False)  # No se puede redimensionar
+
         
         # Centrar la ventana
         screen_width = self.winfo_screenwidth()
@@ -68,7 +73,7 @@ class FirestoreAdminApp(tk.Tk):
         
     def init_app(self):
         # Simular tiempo de carga
-        time.sleep(5)
+        time.sleep(5) # Simulación de carga (5 segundos)
         
         # Inicializar Firebase
         try:
@@ -97,6 +102,7 @@ class FirestoreAdminApp(tk.Tk):
         self.minsize(1000, 600)    # Tamaño mínimo para evitar desbordamientos
         self.state('zoomed')       # Maximizando la ventana
         self.iconbitmap('icono/gymrace.ico')
+
 
         
         
