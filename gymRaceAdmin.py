@@ -11,7 +11,7 @@ class FirestoreAdminApp(tk.Tk):
         self.geometry("1200x700")  # Tamaño inicial
         self.minsize(1000, 600)    # Tamaño mínimo para evitar desbordamientos
         self.state('zoomed')       # Maximizando la ventana
-        self.iconbitmap('gymrace.ico')
+        self.iconbitmap('icono/gymrace.ico')
         
         # User cache for faster lookup
         self.user_id_to_name = {}  # Dictionary to cache user IDs and names
@@ -92,7 +92,7 @@ class FirestoreAdminApp(tk.Tk):
     def init_firebase(self):
         try:
             if not firebase_admin._apps:
-                cred = credentials.Certificate('firebase-credentials.json')
+                cred = credentials.Certificate('credencialesFireBase/firebase-credentials.json')
                 firebase_admin.initialize_app(cred)
             self.db = firestore.client()
         except Exception as e:
@@ -126,7 +126,7 @@ class FirestoreAdminApp(tk.Tk):
         header_frame.grid_columnconfigure(1, weight=1)
         
         try:
-            logo_img = Image.open("gymrace.png")
+            logo_img = Image.open("img/gymrace.png")
             try:
                 logo_img = logo_img.resize((60, 60), Image.Resampling.LANCZOS)
             except AttributeError:
