@@ -3,102 +3,15 @@ from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 import firebase_admin
 from firebase_admin import credentials, firestore
-import threading
-import time
-
-class SplashScreen(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("Cargando GymRace")
-        self.geometry("400x300")
-        self.overrideredirect(True)  # Quitar bordes de ventana
-        
-        # Centrar la ventana
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        x = (screen_width - 400) // 2
-        y = (screen_height - 300) // 2
-        self.geometry(f'+{x}+{y}')
-        
-        self.configure(bg='white')
-        
-        try:
-            logo_img = Image.open("img/gymrace.png")
-            logo_img = logo_img.resize((200, 200), Image.Resampling.LANCZOS)
-            self.logo_photo = ImageTk.PhotoImage(logo_img)
-            
-            logo_label = tk.Label(self, image=self.logo_photo, bg='white')
-            logo_label.pack(expand=True)
-            
-            # Etiqueta de carga
-            self.loading_label = tk.Label(
-                self, 
-                text="Cargando...", 
-                font=("Helvetica", 14), 
-                bg='white',
-                fg='#2c3e50'
-            )
-            self.loading_label.pack(pady=10)
-            
-            # Barra de progreso
-            self.progress = ttk.Progressbar(
-                self, 
-                orient="horizontal", 
-                length=300, 
-                mode='indeterminate'
-            )
-            self.progress.pack(pady=10)
-            self.progress.start()
-            
-        except Exception as e:
-            print(f"Error cargando logo de splash: {e}")
 
 class FirestoreAdminApp(tk.Tk):
     def __init__(self):
         super().__init__()
-
-        # Ocultar la ventana principal
-        self.withdraw()
-
-        # Mostrar pantalla de carga
-        self.splash = SplashScreen(self)
-        
-        # Iniciar carga en un hilo separado para no bloquear
-        threading.Thread(target=self.init_app, daemon=True).start()
-        
-    def init_app(self):
-        # Simular tiempo de carga
-        time.sleep(5)
-        
-        # Inicializar Firebase
-        try:
-            if not firebase_admin._apps:
-                cred = credentials.Certificate('credencialesFireBase/firebase-credentials.json')
-                firebase_admin.initialize_app(cred)
-            self.db = firestore.client()
-        except Exception as e:
-            messagebox.showerror("Error de Firebase", f"No se pudo inicializar Firebase: {e}")
-            self.splash.destroy()
-            return
-        
-        # Cargar caché de nombres
-        self.load_user_names()
-        
-        # Configurar ventana principal en el hilo principal
-        self.after(0, self.setup_main_window)
-        
-    def setup_main_window(self):
-        # Cerrar splash screen
-        self.splash.destroy()
-        
-        # Configuraciones originales de la ventana principal
         self.title("GymRace Admin Panel")
         self.geometry("1200x700")  # Tamaño inicial
         self.minsize(1000, 600)    # Tamaño mínimo para evitar desbordamientos
         self.state('zoomed')       # Maximizando la ventana
         self.iconbitmap('icono/gymrace.ico')
-
-        
         
         # User cache for faster lookup
         self.user_id_to_name = {}  # Dictionary to cache user IDs and names
@@ -154,6 +67,7 @@ class FirestoreAdminApp(tk.Tk):
                 "Dificultad": "dificultad",
                 "Ejercicios": "ejercicios",
                 "Fecha de Creación": "fechaCreacion",
+
             },
             "dietas": {
                 "Nombre": "nombre",
@@ -170,7 +84,9 @@ class FirestoreAdminApp(tk.Tk):
         self.sort_column = None
         self.sort_reverse = False
         
+        self.init_firebase()
         self.create_widgets()
+        self.load_user_names()  # Load user cache initially
         self.load_data()
 
     def init_firebase(self):
@@ -300,17 +216,11 @@ class FirestoreAdminApp(tk.Tk):
         
         self.setup_table_headers()
 
-    # Los métodos restantes son idénticos a tu código original
-    # (setup_table_headers, sort_treeview, on_collection_change, load_data, filter_data)
-    # Los he omitido para no hacer el código excesivamente largo, pero deben ir aquí
-
     def setup_table_headers(self):
         headers = self.collections[self.current_collection]
         self.tree["columns"] = headers
         
-        # Base column widths, overrides, etc. from your original code
-        # (Mantener exactamente igual)
-        
+        # Define base column widths for all collections
         base_column_widths = {
             "ID": 210,
             "Nombre": 120,
@@ -326,15 +236,29 @@ class FirestoreAdminApp(tk.Tk):
             "Alimentos Prohibidos": 400,
             "Calorias": 100,
             "Comidas": 270,
-            "Usuario": 150
+            "Usuario": 150  # <-- Para la nueva columna "Usuario"
         }
         
+        # Collection-specific overrides
         collection_overrides = {
-            "dietas": {},
-            "rutinas": {},
-            "usuarios": {}
+            "dietas": {
+                # Podrías añadir overrides específicos si deseas
+                "Nombre": 200
+            },
+            "rutinas": {
+                # Podrías añadir overrides específicos si deseas
+                "Nombre": 200,
+                "Dificultad": 100,
+                "Ejercicios": 900,
+                "Fecha de Creacion": 150,
+
+            },
+            "usuarios": {
+                # Podrías añadir overrides específicos si deseas
+            }
         }
         
+        # Collection-specific text alignment settings
         collection_anchors = {
             "dietas": tk.W,
             "rutinas": tk.W,
@@ -353,7 +277,8 @@ class FirestoreAdminApp(tk.Tk):
             self.tree.heading(header, text=header, command=lambda col=header: self.sort_treeview(col))
             self.tree.column(header, width=width, anchor=anchor, minwidth=50, stretch=False)
         
-        table_frame_width = self.winfo_width() - 300
+        # Ajuste opcional si el total de columnas es menor que el espacio disponible
+        table_frame_width = self.winfo_width() - 300  # Aproximación
         if total_width < table_frame_width:
             for important_col in ["Descripción", "Objetivo Fitness", "Nombre"]:
                 if important_col in headers:
@@ -362,7 +287,6 @@ class FirestoreAdminApp(tk.Tk):
                         width=base_column_widths.get(important_col, 150) + (table_frame_width - total_width)
                     )
                     break
-
 
     def sort_treeview(self, column):
         """Ordena la tabla cuando se hace clic en una columna."""
@@ -422,7 +346,6 @@ class FirestoreAdminApp(tk.Tk):
         self.setup_table_headers()
         self.load_data()
     
-
     def load_data(self):
         try:
             for row in self.tree.get_children():
@@ -519,12 +442,8 @@ class FirestoreAdminApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error de Filtro", f"No se pudo encontrar los datos: {e}")
 
-
 if __name__ == '__main__':
     app = FirestoreAdminApp()
     app.mainloop()
-    try:
-        firebase_admin.delete_app(firebase_admin.get_app())
-        print("Conexión a Firebase cerrada.")
-    except Exception as e:
-        print(f"Error cerrando Firebase: {e}")
+    firebase_admin.delete_app(firebase_admin.get_app())
+    print("Conexión a Firebase cerrada.")
