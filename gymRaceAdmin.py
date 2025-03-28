@@ -1,24 +1,122 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 from PIL import Image, ImageTk
 import firebase_admin
 from firebase_admin import credentials, firestore
 import threading
 import time
 
+class EnhancedFilterDialog(simpledialog.Dialog):
+    def __init__(self, parent, title, collection, field_mappings):
+        self.collection = collection
+        self.field_mappings = field_mappings
+        self.result = {}
+        super().__init__(parent, title)
 
+    def body(self, master):
+        # Dynamically create filter fields based on collection
+        self.fields = {}
+        row_count = 0
+        
+        # Invert field mappings to get user-friendly names
+        reverse_mappings = {v: k for k, v in self.field_mappings.items()}
+        
+        filter_options = {
+            "usuarios": [
+                "edad", "peso", "altura", "diasEntrenamientoPorSemana", 
+                "nivelExperiencia", "objetivoFitness"
+            ],
+            "rutinas": [
+                "dificultad", "fechaCreacion", "usuarioId"
+            ],
+            "dietas": [
+                "calorias", "comidas"
+            ]
+        }
+
+        for field in filter_options.get(self.collection, []):
+            friendly_name = reverse_mappings.get(field, field.capitalize())
+            
+            tk.Label(master, text=friendly_name).grid(row=row_count, column=0, sticky='w', padx=5, pady=2)
+            
+            if field in ["edad", "peso", "altura", "calorias", "diasEntrenamientoPorSemana"]:
+                # Numeric range filters
+                min_var = tk.StringVar()
+                max_var = tk.StringVar()
+                
+                tk.Label(master, text="Min:").grid(row=row_count, column=1, sticky='w', padx=2)
+                min_entry = ttk.Entry(master, textvariable=min_var, width=10)
+                min_entry.grid(row=row_count, column=2, padx=2)
+                
+                tk.Label(master, text="Max:").grid(row=row_count, column=3, sticky='w', padx=2)
+                max_entry = ttk.Entry(master, textvariable=max_var, width=10)
+                max_entry.grid(row=row_count, column=4, padx=2)
+                
+                self.fields[field] = {"min": min_var, "max": max_var, "type": "numeric"}
+            
+            elif field in ["dificultad", "nivelExperiencia", "objetivoFitness"]:
+                # Dropdown filters for categorical data
+                options = ["Todos", "Bajo", "Medio", "Alto", "Principiante", "Intermedio", "Avanzado"]
+                var = tk.StringVar(value="Todos")
+                dropdown = ttk.Combobox(master, textvariable=var, values=options, state="readonly", width=15)
+                dropdown.grid(row=row_count, column=1, columnspan=4, sticky='ew', padx=5)
+                
+                self.fields[field] = {"var": var, "type": "categorical"}
+            
+            elif field == "fechaCreacion":
+                # Date range filter
+                start_var = tk.StringVar()
+                end_var = tk.StringVar()
+                
+                tk.Label(master, text="Desde (YYYY-MM-DD):").grid(row=row_count, column=1, sticky='w', padx=2)
+                start_entry = ttk.Entry(master, textvariable=start_var, width=15)
+                start_entry.grid(row=row_count, column=2, padx=2)
+                
+                tk.Label(master, text="Hasta:").grid(row=row_count, column=3, sticky='w', padx=2)
+                end_entry = ttk.Entry(master, textvariable=end_var, width=15)
+                end_entry.grid(row=row_count, column=4, padx=2)
+                
+                self.fields[field] = {"start": start_var, "end": end_var, "type": "date"}
+            
+            row_count += 1
+
+        return None  # Override default focus
+
+    def apply(self):
+        for field, config in self.fields.items():
+            if config['type'] == 'numeric':
+                try:
+                    min_val = config['min'].get()
+                    max_val = config['max'].get()
+                    
+                    if min_val or max_val:
+                        min_val = float(min_val) if min_val else float('-inf')
+                        max_val = float(max_val) if max_val else float('inf')
+                        self.result[field] = {'min': min_val, 'max': max_val}
+                except ValueError:
+                    messagebox.showerror("Error", f"Valor inválido para {field}")
+                    return
+            
+            elif config['type'] == 'categorical':
+                value = config['var'].get()
+                if value != "Todos":
+                    self.result[field] = value
+            
+            elif config['type'] == 'date':
+                start_val = config['start'].get()
+                end_val = config['end'].get()
+                
+                if start_val or end_val:
+                    self.result[field] = {'start': start_val, 'end': end_val}
 
 class SplashScreen(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
-        # self.title("Cargando GymRace")
         self.title("")
         self.geometry("400x300")
-        self.overrideredirect(True)  # Quitar bordes de ventana
-        self.resizable(False, False)  # No se puede redimensionar
-
+        self.overrideredirect(True)
+        self.resizable(False, False)
         
-        # Centrar la ventana
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         x = (screen_width - 400) // 2
@@ -35,7 +133,6 @@ class SplashScreen(tk.Toplevel):
             logo_label = tk.Label(self, image=self.logo_photo, bg='white')
             logo_label.pack(expand=True)
             
-            # Etiqueta de carga
             self.loading_label = tk.Label(
                 self, 
                 text="Cargando...", 
@@ -45,7 +142,6 @@ class SplashScreen(tk.Toplevel):
             )
             self.loading_label.pack(pady=10)
             
-            # Barra de progreso
             self.progress = ttk.Progressbar(
                 self, 
                 orient="horizontal", 
@@ -61,21 +157,13 @@ class SplashScreen(tk.Toplevel):
 class FirestoreAdminApp(tk.Tk):
     def __init__(self):
         super().__init__()
-
-        # Ocultar la ventana principal
         self.withdraw()
-
-        # Mostrar pantalla de carga
         self.splash = SplashScreen(self)
-        
-        # Iniciar carga en un hilo separado para no bloquear
         threading.Thread(target=self.init_app, daemon=True).start()
         
     def init_app(self):
-        # Simular tiempo de carga
-        time.sleep(5) # Simulación de carga (5 segundos)
+        time.sleep(5)
         
-        # Inicializar Firebase
         try:
             if not firebase_admin._apps:
                 cred = credentials.Certificate('credencialesFireBase/firebase-credentials.json')
@@ -86,63 +174,36 @@ class FirestoreAdminApp(tk.Tk):
             self.splash.destroy()
             return
         
-        # Cargar caché de nombres
         self.load_user_names()
-        
-        # Configurar ventana principal en el hilo principal
         self.after(0, self.setup_main_window)
         
     def setup_main_window(self):
-        # Cerrar splash screen
         self.splash.destroy()
         
-        # Configuraciones originales de la ventana principal
         self.title("GymRace Admin Panel")
-        self.geometry("1200x700")  # Tamaño inicial
-        self.minsize(1000, 600)    # Tamaño mínimo para evitar desbordamientos
-        self.state('zoomed')       # Maximizando la ventana
+        self.geometry("1200x700")
+        self.minsize(1000, 600)
+        self.state('zoomed')
         self.iconbitmap('icono/gymrace.ico')
-
-
         
+        self.user_id_to_name = {}
         
-        # User cache for faster lookup
-        self.user_id_to_name = {}  # Dictionary to cache user IDs and names
-        
-        # Collections dictionary with display headers
         self.collections = {
             "usuarios": [
-                "ID", 
-                "Nombre", 
-                "Edad", 
-                "Peso", 
-                "Altura", 
-                "Días entrenamiento", 
-                "Nivel de Experiencia", 
-                "Objetivo Fitness"
+                "ID", "Nombre", "Edad", "Peso", "Altura", 
+                "Días entrenamiento", "Nivel de Experiencia", "Objetivo Fitness"
             ],
             "rutinas": [
-                "ID", 
-                "Nombre", 
-                "Usuario",  # <-- NUEVO: Agregamos la columna "Usuario"
-                "Descripción",
-                "Dificultad",
-                "Ejercicios",
-                "Fecha de Creación"  # <-- NUEVO: Agregamos la columna "Fecha de Creación"
+                "ID", "Nombre", "Usuario", "Descripción", 
+                "Dificultad", "Ejercicios", "Fecha de Creación"
             ],
             "dietas": [
-                "ID",
-                "Nombre",
-                "Descripción",
-                "Alimentos Permitidos",
-                "Alimentos Prohibidos",
-                "Calorias",
-                "Comidas"
+                "ID", "Nombre", "Descripción", "Alimentos Permitidos", 
+                "Alimentos Prohibidos", "Calorias", "Comidas"
             ]
         }
         self.current_collection = "usuarios"
         
-        # Field mappings for each collection type
         self.field_mappings = {
             "usuarios": {
                 "Nombre": "nombre",
@@ -155,7 +216,7 @@ class FirestoreAdminApp(tk.Tk):
             },
             "rutinas": {
                 "Nombre": "nombre",
-                "Usuario": "usuarioId",  # <-- NUEVO: Mapeamos "Usuario" a "usuarioID"
+                "Usuario": "usuarioId",
                 "Descripción": "descripcion",
                 "Dificultad": "dificultad",
                 "Ejercicios": "ejercicios",
@@ -171,7 +232,6 @@ class FirestoreAdminApp(tk.Tk):
             }
         }
         
-        # Variables para ordenación
         self.current_data = []
         self.sort_column = None
         self.sort_reverse = False
@@ -179,19 +239,9 @@ class FirestoreAdminApp(tk.Tk):
         self.create_widgets()
         self.load_data()
 
-    def init_firebase(self):
-        try:
-            if not firebase_admin._apps:
-                cred = credentials.Certificate('credencialesFireBase/firebase-credentials.json')
-                firebase_admin.initialize_app(cred)
-            self.db = firestore.client()
-        except Exception as e:
-            messagebox.showerror("Error de Firebase", f"No se pudo inicializar Firebase: {e}")
-
     def load_user_names(self):
-        """Carga todos los nombres de usuarios para referenciarlos por ID."""
         try:
-            self.user_id_to_name = {}  # Limpiar caché existente
+            self.user_id_to_name = {}
             users_ref = self.db.collection("usuarios")
             users = users_ref.stream()
             
@@ -207,7 +257,8 @@ class FirestoreAdminApp(tk.Tk):
             print(f"Error cargando nombres de usuarios: {e}")
 
     def create_widgets(self):
-        self.grid_columnconfigure(1, weight=3)
+        # Configure main grid
+        self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(1, weight=1)
         
         # === HEADER ===
@@ -217,41 +268,48 @@ class FirestoreAdminApp(tk.Tk):
         
         try:
             logo_img = Image.open("img/gymrace.png")
-            try:
-                logo_img = logo_img.resize((60, 60), Image.Resampling.LANCZOS)
-            except AttributeError:
-                try:
-                    logo_img = logo_img.resize((60, 60), Image.LANCZOS)
-                except AttributeError:
-                    logo_img = logo_img.resize((60, 60), Image.BICUBIC)
-                    
+            logo_img = logo_img.resize((60, 60), Image.Resampling.LANCZOS)
             self.logo_photo = ImageTk.PhotoImage(logo_img)
-            tk.Label(header_frame, image=self.logo_photo, bg="#2c3e50").grid(row=0, column=0, padx=20, pady=10)
+            logo_label = tk.Label(header_frame, image=self.logo_photo, bg="#2c3e50")
+            logo_label.grid(row=0, column=0, padx=20, pady=10)
         except Exception as e:
             print(f"Error cargando logo: {e}")
         
-        tk.Label(
+        title_label = tk.Label(
             header_frame, 
             text="Panel de Administración GymRace", 
             font=("Helvetica", 20, "bold"), 
             fg="white", 
             bg="#2c3e50"
-        ).grid(row=0, column=1, sticky="w", padx=10)
+        )
+        title_label.grid(row=0, column=1, sticky="w", padx=10)
         
         # === MENÚ LATERAL ===
         sidebar_frame = tk.Frame(self, bg="#34495e", width=250)
-        sidebar_frame.grid(row=1, column=0, sticky="ns")
+        sidebar_frame.grid(row=1, column=0, sticky="nsew")
         sidebar_frame.grid_propagate(False)
         
-        tk.Label(
+        # Style configuration
+        style = ttk.Style()
+        style.configure('Custom.TButton', 
+                        font=('Helvetica', 10), 
+                        background='#3498db',  # Brighter blue
+                        foreground='white')
+        style.map('Custom.TButton', 
+                  background=[('active', '#2980b9')],  # Darker blue on hover
+                  foreground=[('active', 'white')])
+        
+        # Colecciones Label
+        collections_label = tk.Label(
             sidebar_frame, 
             text="Colecciones", 
             font=("Helvetica", 14, "bold"), 
             fg="white", 
             bg="#34495e"
-        ).pack(pady=10)
+        )
+        collections_label.grid(row=0, column=0, pady=10, sticky="w", padx=10)
         
-        # Collection dropdown with display names
+        # Collection Dropdown
         self.collection_var = tk.StringVar(value="Usuarios")
         self.collection_dropdown = ttk.Combobox(
             sidebar_frame, 
@@ -260,26 +318,59 @@ class FirestoreAdminApp(tk.Tk):
             values=["Usuarios", "Rutinas", "Dietas"],
             font=("Helvetica", 12)
         )
-        self.collection_dropdown.pack(padx=10, pady=5, fill="x")
+        self.collection_dropdown.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
         self.collection_dropdown.bind("<<ComboboxSelected>>", self.on_collection_change)
         
-        tk.Button(
+        # Update Button
+        update_btn = tk.Button(
             sidebar_frame, 
             text="Actualizar", 
             font=("Helvetica", 12), 
+            bg="#3498db",  # Bright blue
+            fg="white",
             command=self.load_data
-        ).pack(padx=10, pady=10, fill="x")
+        )
+        update_btn.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
         
-        tk.Label(sidebar_frame, text="Buscar:", font=("Helvetica", 12), fg="white", bg="#34495e").pack(pady=5)
-        self.search_var = tk.StringVar()
-        search_entry = ttk.Entry(sidebar_frame, textvariable=self.search_var, font=("Helvetica", 12))
-        search_entry.pack(padx=10, pady=5, fill="x")
-        tk.Button(
+        # Search Label
+        search_label = tk.Label(
             sidebar_frame, 
-            text="Buscar", 
+            text="Buscar:", 
             font=("Helvetica", 12), 
-            command=self.filter_data
-        ).pack(padx=10, pady=5, fill="x")
+            fg="white", 
+            bg="#34495e"
+        )
+        search_label.grid(row=3, column=0, pady=5, sticky="w", padx=10)
+        
+        # Search Entry
+        self.search_var = tk.StringVar()
+        search_entry = ttk.Entry(
+            sidebar_frame, 
+            textvariable=self.search_var, 
+            font=("Helvetica", 12)
+        )
+        search_entry.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
+        
+        # # Search and Advanced Filter Buttons
+        # search_btn = tk.Button(
+        #     sidebar_frame, 
+        #     text="🔍 Buscar", 
+        #     font=("Helvetica", 12), 
+        #     bg="#3498db",  # Bright blue
+        #     fg="white",
+        #     command=self.filter_data
+        # )
+        # search_btn.grid(row=5, column=0, padx=10, pady=5, sticky="ew")
+
+        # advanced_filter_btn = tk.Button(
+        #     sidebar_frame, 
+        #     text="📊 Filtros Avanzados", 
+        #     font=("Helvetica", 12), 
+        #     bg="#3498db",  # Bright blue
+        #     fg="white",
+        #     command=self.show_advanced_filter
+        # )
+        # advanced_filter_btn.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
         
         # === TABLA DE DATOS ===
         table_frame = tk.Frame(self, bd=2, relief=tk.RIDGE)
@@ -287,64 +378,40 @@ class FirestoreAdminApp(tk.Tk):
         table_frame.grid_rowconfigure(0, weight=1)
         table_frame.grid_columnconfigure(0, weight=1)
         
-        # Create the Treeview
         style = ttk.Style()
         style.configure("Treeview", stretchheadings=False, stretchcolumns=False)
         self.tree = ttk.Treeview(table_frame, columns=self.collections[self.current_collection], show="headings")
         self.tree.grid(row=0, column=0, sticky="nsew")
         
-        # Vertical scrollbar
         v_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         v_scrollbar.grid(row=0, column=1, sticky="ns")
         
-        # Horizontal scrollbar
         h_scrollbar = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
         h_scrollbar.grid(row=1, column=0, sticky="ew")
         
-        # Configure the Treeview to use both scrollbars
         self.tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
         
         self.setup_table_headers()
-
-    # Los métodos restantes son idénticos a tu código original
-    # (setup_table_headers, sort_treeview, on_collection_change, load_data, filter_data)
-    # Los he omitido para no hacer el código excesivamente largo, pero deben ir aquí
 
     def setup_table_headers(self):
         headers = self.collections[self.current_collection]
         self.tree["columns"] = headers
         
-        # Base column widths, overrides, etc. from your original code
-        # (Mantener exactamente igual)
-        
         base_column_widths = {
-            "ID": 210,
-            "Nombre": 120,
-            "Descripción": 550,
-            "Edad": 70,
-            "Peso": 70,
-            "Altura": 70,
-            "Días entrenamiento": 130,
-            "Nivel de Experiencia": 180,
-            "Objetivo Fitness": 200,
-            "Estado": 80,
-            "Alimentos Permitidos": 400,
-            "Alimentos Prohibidos": 400,
-            "Calorias": 100,
-            "Comidas": 270,
-            "Usuario": 150
+            "ID": 210, "Nombre": 120, "Descripción": 550, "Edad": 70,
+            "Peso": 70, "Altura": 70, "Días entrenamiento": 130,
+            "Nivel de Experiencia": 180, "Objetivo Fitness": 200,
+            "Estado": 80, "Alimentos Permitidos": 400,
+            "Alimentos Prohibidos": 400, "Calorias": 100,
+            "Comidas": 270, "Usuario": 150
         }
         
         collection_overrides = {
-            "dietas": {},
-            "rutinas": {},
-            "usuarios": {}
+            "dietas": {}, "rutinas": {}, "usuarios": {}
         }
         
         collection_anchors = {
-            "dietas": tk.W,
-            "rutinas": tk.W,
-            "usuarios": tk.W
+            "dietas": tk.W, "rutinas": tk.W, "usuarios": tk.W
         }
         
         current_overrides = collection_overrides.get(self.current_collection, {})
@@ -369,9 +436,7 @@ class FirestoreAdminApp(tk.Tk):
                     )
                     break
 
-
     def sort_treeview(self, column):
-        """Ordena la tabla cuando se hace clic en una columna."""
         if not self.current_data:
             return
             
@@ -385,7 +450,7 @@ class FirestoreAdminApp(tk.Tk):
             self.sort_column = column
         
         def convert_value(value, idx):
-            if idx in [2, 3, 4]:  # Ejemplo: columnas que sean numéricas (ajustar según tus necesidades)
+            if idx in [2, 3, 4]:
                 try:
                     return float(value)
                 except (ValueError, TypeError):
@@ -421,13 +486,11 @@ class FirestoreAdminApp(tk.Tk):
         display_name = self.collection_var.get()
         self.current_collection = collection_mapping.get(display_name, display_name.lower())
         
-        # Si cambiamos a rutinas, aseguramos que los nombres de usuarios estén cargados
         if self.current_collection == "rutinas":
             self.load_user_names()
             
         self.setup_table_headers()
         self.load_data()
-    
 
     def load_data(self):
         try:
@@ -444,27 +507,21 @@ class FirestoreAdminApp(tk.Tk):
                 data = doc.to_dict()
                 row = [str(doc.id)]
                 
-                # Recorremos las columnas definidas en self.collections, 
-                # excepto la primera (ID) que ya añadimos.
                 for header in self.collections[self.current_collection][1:]:
                     firestore_field = field_mapping.get(header, header.lower())
 
                     if self.current_collection == "rutinas" and header == "Usuario":
-                        # Usar el caché de nombres en lugar de consultar Firestore
                         user_id = data.get("usuarioId", "")
                         user_name = self.user_id_to_name.get(user_id, "N/A")
                         row.append(user_name)
                     else:
                         row.append(str(data.get(firestore_field, 'N/A')))
 
-
                 self.current_data.append(row)
             
-            # Insertar en el Treeview
             for row_data in self.current_data:
                 self.tree.insert("", tk.END, values=row_data)
             
-            # Reset de sort
             self.sort_column = None
             self.sort_reverse = False
             for header in self.collections[self.current_collection]:
@@ -501,7 +558,6 @@ class FirestoreAdminApp(tk.Tk):
                     for header in self.collections[self.current_collection][1:]:
                         firestore_field = field_mapping.get(header, header.lower())
                         
-                        # Usar el caché de nombres en lugar de consultar Firestore
                         if self.current_collection == "rutinas" and header == "Usuario":
                             user_id = data.get("usuarioId", "")
                             user_name = self.user_id_to_name.get(user_id, "N/A")
@@ -524,6 +580,84 @@ class FirestoreAdminApp(tk.Tk):
 
         except Exception as e:
             messagebox.showerror("Error de Filtro", f"No se pudo encontrar los datos: {e}")
+
+    def show_advanced_filter(self):
+        """Show advanced filter dialog for the current collection"""
+        filter_dialog = EnhancedFilterDialog(
+            self, 
+            "Filtros Avanzados", 
+            self.current_collection, 
+            self.field_mappings[self.current_collection]
+        )
+        
+        if filter_dialog.result:
+            self.apply_advanced_filter(filter_dialog.result)
+
+    def apply_advanced_filter(self, filter_conditions):
+        """Apply advanced filtering based on user-selected conditions"""
+        try:
+            for row in self.tree.get_children():
+                self.tree.delete(row)
+
+            collection_ref = self.db.collection(self.current_collection)
+            docs = collection_ref.stream()
+            
+            self.current_data = []
+
+            for doc in docs:
+                data = doc.to_dict()
+                match = True
+
+                for field, condition in filter_conditions.items():
+                    if isinstance(condition, dict):
+                        if 'min' in condition and 'max' in condition:
+                            # Numeric range filter
+                            value = float(data.get(field, 0))
+                            if not (condition['min'] <= value <= condition['max']):
+                                match = False
+                                break
+                        elif 'start' in condition and 'end' in condition:
+                            # Date range filter
+                            value = data.get(field, '')
+                            if condition['start'] and value < condition['start']:
+                                match = False
+                                break
+                            if condition['end'] and value > condition['end']:
+                                match = False
+                                break
+                    else:
+                        # Categorical filter
+                        if str(data.get(field, '')).lower() != condition.lower():
+                            match = False
+                            break
+
+                if match:
+                    row = [str(doc.id)]
+                    for header in self.collections[self.current_collection][1:]:
+                        firestore_field = self.field_mappings[self.current_collection].get(header, header.lower())
+                        
+                        if self.current_collection == "rutinas" and header == "Usuario":
+                            user_id = data.get("usuarioId", "")
+                            user_name = self.user_id_to_name.get(user_id, "N/A")
+                            row.append(user_name)
+                        else:
+                            row.append(str(data.get(firestore_field, 'N/A')))
+
+                    self.current_data.append(row)
+            
+            if not self.current_data:
+                messagebox.showinfo("Sin resultados", "No se encontraron resultados con los filtros aplicados")
+            
+            for row_data in self.current_data:
+                self.tree.insert("", tk.END, values=row_data)
+
+            self.sort_column = None
+            self.sort_reverse = False
+            for header in self.collections[self.current_collection]:
+                self.tree.heading(header, text=header)
+
+        except Exception as e:
+            messagebox.showerror("Error de Filtro", f"No se pudo aplicar los filtros: {e}")
 
 
 if __name__ == '__main__':
