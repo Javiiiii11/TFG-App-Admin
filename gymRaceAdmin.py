@@ -105,7 +105,7 @@ class FirestoreAdminApp(tk.Tk):
         self.splash.destroy()
         self.title("GymRace Admin Panel")
         self.geometry("1200x700")
-        self.minsize(1000, 600)
+        self.minsize(1000, 650)
         self.state('zoomed')
         try:
             self.iconbitmap('icono/gymrace.ico')
