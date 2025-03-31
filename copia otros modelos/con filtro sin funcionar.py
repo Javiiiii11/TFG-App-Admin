@@ -6,9 +6,102 @@ from firebase_admin import credentials, firestore
 import threading
 import time
 import csv
-import json
-import sqlite3
-import os
+
+class EnhancedFilterDialog(simpledialog.Dialog):
+    def __init__(self, parent, title, collection, field_mappings):
+        self.collection = collection
+        self.field_mappings = field_mappings
+        # No inicialices self.result aquí, se sobrescribirá por la clase base
+        self._filter_result = {}  # Usa un nombre diferente para evitar conflictos
+        super().__init__(parent, title)
+
+    def body(self, master):
+        # Crea dinámicamente los campos de filtro según la colección
+        self.fields = {}
+        row_count = 0
+
+        # Invertir field_mappings para obtener nombres amigables
+        reverse_mappings = {v: k for k, v in self.field_mappings.items()}
+
+        filter_options = {
+            "usuarios": [
+                "edad", "peso", "altura", "diasEntrenamientoPorSemana", 
+                "nivelExperiencia", "objetivoFitness"
+            ],
+            "rutinas": [
+                "dificultad", "fechaCreacion", "usuarioId"
+            ],
+            "dietas": [
+                "calorias", "comidas"
+            ]
+        }
+
+        for field in filter_options.get(self.collection, []):
+            friendly_name = reverse_mappings.get(field, field.capitalize())
+            tk.Label(master, text=friendly_name).grid(row=row_count, column=0, sticky='w', padx=5, pady=2)
+
+            if field in ["edad", "peso", "altura", "calorias", "diasEntrenamientoPorSemana"]:
+                # Filtros numéricos (rango)
+                min_var = tk.StringVar()
+                max_var = tk.StringVar()
+                tk.Label(master, text="Min:").grid(row=row_count, column=1, sticky='w', padx=2)
+                min_entry = ttk.Entry(master, textvariable=min_var, width=10)
+                min_entry.grid(row=row_count, column=2, padx=2)
+                tk.Label(master, text="Max:").grid(row=row_count, column=3, sticky='w', padx=2)
+                max_entry = ttk.Entry(master, textvariable=max_var, width=10)
+                max_entry.grid(row=row_count, column=4, padx=2)
+                self.fields[field] = {"min": min_var, "max": max_var, "type": "numeric"}
+
+            elif field in ["dificultad", "nivelExperiencia", "objetivoFitness"]:
+                # Filtros de opción (dropdown)
+                options = ["Todos", "Bajo", "Medio", "Alto", "Principiante", "Intermedio", "Avanzado"]
+                var = tk.StringVar(value="Todos")
+                dropdown = ttk.Combobox(master, textvariable=var, values=options, state="readonly", width=15)
+                dropdown.grid(row=row_count, column=1, columnspan=4, sticky='ew', padx=5)
+                self.fields[field] = {"var": var, "type": "categorical"}
+
+            elif field == "fechaCreacion":
+                # Filtro de fecha (rango)
+                start_var = tk.StringVar()
+                end_var = tk.StringVar()
+                tk.Label(master, text="Desde (YYYY-MM-DD):").grid(row=row_count, column=1, sticky='w', padx=2)
+                start_entry = ttk.Entry(master, textvariable=start_var, width=15)
+                start_entry.grid(row=row_count, column=2, padx=2)
+                tk.Label(master, text="Hasta:").grid(row=row_count, column=3, sticky='w', padx=2)
+                end_entry = ttk.Entry(master, textvariable=end_var, width=15)
+                end_entry.grid(row=row_count, column=4, padx=2)
+                self.fields[field] = {"start": start_var, "end": end_var, "type": "date"}
+
+            row_count += 1
+
+        return None  # Para que se mantenga el foco por defecto
+
+    def apply(self):
+        for field, config in self.fields.items():
+            if config['type'] == 'numeric':
+                try:
+                    min_val = config['min'].get()
+                    max_val = config['max'].get()
+                    if min_val or max_val:
+                        min_val = float(min_val) if min_val else float('-inf')
+                        max_val = float(max_val) if max_val else float('inf')
+                        self._filter_result[field] = {'min': min_val, 'max': max_val}
+                except ValueError:
+                    messagebox.showerror("Error", f"Valor inválido para {field}")
+                    return
+            elif config['type'] == 'categorical':
+                value = config['var'].get()
+                if value != "Todos":
+                    self._filter_result[field] = value
+            elif config['type'] == 'date':
+                start_val = config['start'].get()
+                end_val = config['end'].get()
+                if start_val or end_val:
+                    self._filter_result[field] = {'start': start_val, 'end': end_val}
+        
+        # Asignar los filtros recogidos a self.result al final
+        self.result = self._filter_result if self._filter_result else {}
+
 
 class SplashScreen(tk.Toplevel):
     def __init__(self, parent):
@@ -80,12 +173,7 @@ class FirestoreAdminApp(tk.Tk):
         self.current_data = []
         self.active_bg = "#3498db"   # Botón activo
         self.inactive_bg = "#34495e" # Botón inactivo
-        # threading.Thread(target=self.init_app, daemon=True).start()
-        # Iniciar el proceso de carga en un hilo
         threading.Thread(target=self.init_app, daemon=True).start()
-        
-        # Iniciar la función cargando_datos_prints en otro hilo
-        threading.Thread(target=cargando_datos_prints, daemon=True).start()
 
     def init_app(self):
         time.sleep(5)
@@ -128,7 +216,7 @@ class FirestoreAdminApp(tk.Tk):
                 user_id = user.id
                 user_name = user_data.get("nombre", "Usuario sin nombre")
                 self.user_id_to_name[user_id] = user_name
-            # print(f"Caché de nombres de usuarios cargada: {len(self.user_id_to_name)} usuarios")
+            print(f"Caché de nombres de usuarios cargada: {len(self.user_id_to_name)} usuarios")
         except Exception as e:
             print(f"Error cargando nombres de usuarios: {e}")
 
@@ -185,25 +273,24 @@ class FirestoreAdminApp(tk.Tk):
         self.search_var = tk.StringVar()
         search_entry = ttk.Entry(search_frame, textvariable=self.search_var, font=("Helvetica", 12))
         search_entry.pack(fill=tk.X, pady=5)
-        # search_entry.bind("<Return>", lambda e: self.filter_data()) # Filtrar al presionar Enter
-        search_entry.bind("<KeyRelease>", lambda e: self.filter_data()) # Filtrar al escribir
+        search_entry.bind("<Return>", lambda e: self.filter_data())
         search_btn = tk.Button(search_frame, text="🔍 Buscar", font=("Helvetica", 12),
                                bg="#3498db", fg="white", command=self.filter_data)
         search_btn.pack(fill=tk.X, pady=5)
-        # advanced_filter_btn = tk.Button(search_frame, text="📊 Filtros Avanzados", font=("Helvetica", 12),
-        #                                 bg="#3498db", fg="white", command=self.show_advanced_filter)
-        # advanced_filter_btn.pack(fill=tk.X, pady=5)
+        advanced_filter_btn = tk.Button(search_frame, text="📊 Filtros Avanzados", font=("Helvetica", 12),
+                                        bg="#3498db", fg="white", command=self.show_advanced_filter)
+        advanced_filter_btn.pack(fill=tk.X, pady=5)
         # Operaciones (actualizar y exportar)
         operations_label = tk.Label(sidebar_frame, text="OPERACIONES", font=("Helvetica", 13, "bold"),
                                     fg="white", bg="#34495e")
-        operations_label.pack(fill=tk.X, padx=15, pady=(50, 10))
+        operations_label.pack(fill=tk.X, padx=15, pady=(20, 10))
         operations_frame = tk.Frame(sidebar_frame, bg="#34495e", padx=15)
         operations_frame.pack(fill=tk.X)
         refresh_btn = tk.Button(operations_frame, text="🔄 Actualizar Datos", font=("Helvetica", 12),
                                 bg="#3498db", fg="white", command=self.load_data)
         refresh_btn.pack(fill=tk.X, pady=5)
         export_btn = tk.Button(operations_frame, text="📥 Exportar Datos", font=("Helvetica", 12),
-                               bg="#3498db", fg="white", command=self.show_export_options)
+                               bg="#3498db", fg="white", command=self.export_data)
         export_btn.pack(fill=tk.X, pady=5)
         
         # === TABLA DE DATOS ===
@@ -237,63 +324,19 @@ class FirestoreAdminApp(tk.Tk):
         self.tree["columns"] = headers
         base_column_widths = {
             "ID": 210, "Nombre": 150, "Descripción": 400, "Edad": 70,
-            "Peso": 70, "Altura": 70, "Días entrenamiento": 150,
-            "Nivel de Experiencia": 180, "Objetivo Fitness": 150,
+            "Peso": 70, "Altura": 70, "Días entrenamiento": 130,
+            "Nivel de Experiencia": 180, "Objetivo Fitness": 200,
             "Alimentos Permitidos": 400, "Alimentos Prohibidos": 400,
             "Calorias": 100, "Comidas": 270, "Usuario": 150, "Dificultad": 120,
             "Ejercicios": 300, "Fecha de Creación": 150
         }
         numeric_columns = ["Edad", "Peso", "Altura", "Días entrenamiento", "Calorias"]
-        # Inicializamos el diccionario para la dirección de ordenación
-        self.sort_orders = {}
         for header in headers:
-            self.sort_orders[header] = True  # True = ascendente, False = descendente
             width = base_column_widths.get(header, 150)
             anchor = tk.E if header in numeric_columns else tk.W
-            self.tree.heading(header, text=header, anchor=tk.CENTER,
-                              command=lambda c=header: self.sort_tree(c))
+            self.tree.heading(header, text=header, anchor=tk.CENTER)
             self.tree.column(header, width=width, anchor=anchor, minwidth=50, stretch=False)
-        # Inicialmente, ningún encabezado muestra flecha
-        self.sorted_column = None
-        self.sorted_direction = None
 
-    def sort_tree(self, col):
-        headers = self.collections[self.current_collection]
-        col_index = headers.index(col)
-        # Obtenemos el orden actual para la columna (True = ascendente)
-        current_order = self.sort_orders[col]
-        try:
-            # Intentamos ordenar numéricamente
-            self.current_data.sort(
-                key=lambda row: float(row[col_index]) if row[col_index] != 'N/A' else float('inf'),
-                reverse=not current_order
-            )
-        except ValueError:
-            # Si no es numérico, se ordena como cadenas
-            self.current_data.sort(
-                key=lambda row: row[col_index],
-                reverse=not current_order
-            )
-        # Guardamos la columna ordenada y la dirección usada
-        self.sorted_column = col
-        self.sorted_direction = "asc" if current_order else "desc"
-        # Alternamos el orden para el siguiente clic
-        self.sort_orders[col] = not current_order
-        self.populate_tree()
-        self.update_headers()
-        self.status_var.set(f"Ordenado por {col} ({self.sorted_direction})")
-
-    def update_headers(self):
-        headers = self.collections[self.current_collection]
-        for header in headers:
-            arrow = ""
-            if self.sorted_column == header:
-                arrow = " ↑" if self.sorted_direction == "asc" else " ↓"
-            new_text = header + arrow
-            # Actualizamos el encabezado con la flecha correspondiente
-            self.tree.heading(header, text=new_text,
-                              command=lambda c=header: self.sort_tree(c))
-            
     def load_data(self):
         try:
             # Vaciar la tabla
@@ -302,7 +345,7 @@ class FirestoreAdminApp(tk.Tk):
             field_mapping = self.field_mappings.get(self.current_collection, {})
             collection_ref = self.db.collection(self.current_collection)
             docs = collection_ref.stream()
-            self.all_data = []
+            self.current_data = []
             for doc in docs:
                 data = doc.to_dict()
                 row = [str(doc.id)]
@@ -315,12 +358,9 @@ class FirestoreAdminApp(tk.Tk):
                     else:
                         val = data.get(firestore_field, 'N/A')
                         row.append(str(val))
-                self.all_data.append(row)
-            # Inicialmente se muestran todos los datos
-            self.current_data = self.all_data.copy()
+                self.current_data.append(row)
             self.populate_tree()
             self.status_var.set(f"Mostrando {len(self.current_data)} registros")
-            print(f"Cargados {len(self.current_data)} datos")
         except Exception as e:
             messagebox.showerror("Error de Carga", f"No se pudieron cargar los datos: {e}")
 
@@ -330,16 +370,17 @@ class FirestoreAdminApp(tk.Tk):
             self.tree.insert("", tk.END, values=row_data)
 
     def filter_data(self):
-        search_term = self.search_var.get().strip().lower()
-        if not search_term:
-            self.current_data = self.all_data.copy()
-        else:
-            self.current_data = [
-                row for row in self.all_data
-                if any(search_term in str(cell).lower() for cell in row)
-            ]
-        self.populate_tree()
-        self.status_var.set(f"Mostrando {len(self.current_data)} registros (filtrados)")
+        # En este ejemplo simplemente se recarga la data.
+        # Aquí podrías implementar filtros basados en self.search_var.get()
+        self.load_data()
+
+    def show_advanced_filter(self):
+        dialog = EnhancedFilterDialog(self, "Filtros Avanzados", self.current_collection,
+                                    self.field_mappings[self.current_collection])
+        # La propiedad result se establece correctamente después de OK
+        if dialog.result:  # Esto ya no será None si el usuario hizo clic en OK
+            # Aquí puedes aplicar los filtros a la consulta de Firestore
+            messagebox.showinfo("Filtros", f"Filtros aplicados: {dialog.result}")
 
     def switch_collection(self, collection_id):
         if collection_id == self.current_collection:
@@ -354,183 +395,26 @@ class FirestoreAdminApp(tk.Tk):
         self.load_data()
         self.status_var.set(f"Colección cambiada a: {collection_id.capitalize()}")
 
-    def show_export_options(self):
+    def export_data(self):
         if not self.current_data:
             messagebox.showinfo("Exportar", "No hay datos para exportar")
             return
-        
-        # Crear ventana de opciones de exportación
-        export_window = tk.Toplevel(self)
-        export_window.title("Opciones de Exportación")
-        export_window.geometry("400x300")
-        export_window.resizable(False, False)
-        export_window.transient(self)
-        export_window.grab_set()
-        
-        # Centrar la ventana
-        export_window.update_idletasks()
-        width = export_window.winfo_width()
-        height = export_window.winfo_height()
-        x = (export_window.winfo_screenwidth() // 2) - (width // 2)
-        y = (export_window.winfo_screenheight() // 2) - (height // 2)
-        export_window.geometry(f'+{x}+{y}')
-        
-        # Contenido de la ventana
-        main_frame = tk.Frame(export_window, padx=20, pady=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Título
-        title_label = tk.Label(main_frame, text="Seleccione formato de exportación", 
-                              font=("Helvetica", 14, "bold"))
-        title_label.pack(pady=(0, 20))
-        
-        # Opciones de formato
-        formats_frame = tk.Frame(main_frame)
-        formats_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Variable para el formato seleccionado
-        self.export_format = tk.StringVar(value="csv")
-        
-        # Estilos de botones
-        button_style = {"font": ("Helvetica", 12), "width": 30, "height": 2, 
-                        "cursor": "hand2", "bd": 1, "relief": tk.RAISED}
-        
-        # Botones de formato
-        csv_btn = tk.Radiobutton(formats_frame, text="CSV (Excel, LibreOffice Calc)", 
-                                variable=self.export_format, value="csv", 
-                                font=("Helvetica", 12), anchor="w", padx=10)
-        csv_btn.pack(fill=tk.X, pady=5)
-        
-        json_btn = tk.Radiobutton(formats_frame, text="JSON (JavaScript, API)", 
-                                 variable=self.export_format, value="json", 
-                                 font=("Helvetica", 12), anchor="w", padx=10)
-        json_btn.pack(fill=tk.X, pady=5)
-        
-        txt_btn = tk.Radiobutton(formats_frame, text="TXT (Texto plano)", 
-                                variable=self.export_format, value="txt", 
-                                font=("Helvetica", 12), anchor="w", padx=10)
-        txt_btn.pack(fill=tk.X, pady=5)
-        
-        db_btn = tk.Radiobutton(formats_frame, text="BD SQLite (Base de datos)", 
-                               variable=self.export_format, value="db", 
-                               font=("Helvetica", 12), anchor="w", padx=10)
-        db_btn.pack(fill=tk.X, pady=5)
-        
-        # Botones de acción
-        buttons_frame = tk.Frame(main_frame)
-        buttons_frame.pack(fill=tk.X, pady=(20, 0))
-        
-        export_btn = tk.Button(buttons_frame, text="Exportar", 
-                              command=lambda: self.export_data(export_window),
-                              bg="#3498db", fg="white", font=("Helvetica", 12))
-        export_btn.pack(side=tk.RIGHT, padx=5)
-        
-        cancel_btn = tk.Button(buttons_frame, text="Cancelar", 
-                              command=export_window.destroy,
-                              bg="#95a5a6", fg="white", font=("Helvetica", 12))
-        cancel_btn.pack(side=tk.RIGHT, padx=5)
-
-    def export_data(self, export_window=None):
-        if not self.current_data:
-            messagebox.showinfo("Exportar", "No hay datos para exportar")
-            return
-        
-        if export_window:
-            format_selected = self.export_format.get()
-            export_window.destroy()
-        else:
-            format_selected = "csv"  # Valor por defecto si se llama directamente
-        
-        # Definir extensiones y tipos de archivo según el formato
-        formats = {
-            "csv": (".csv", "CSV Files"),
-            "json": (".json", "JSON Files"),
-            "txt": (".txt", "Text Files"),
-            "db": (".db", "SQLite Database")
-        }
-        
-        ext, file_type = formats.get(format_selected, (".csv", "CSV Files"))
-        
-        # Diálogo para seleccionar dónde guardar
         filename = filedialog.asksaveasfilename(
-            defaultextension=ext,
-            filetypes=[(file_type, f"*{ext}"), ("All Files", "*.*")],
-            title=f"Exportar datos como {format_selected.upper()}"
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+            title="Exportar datos"
         )
-        
         if not filename:
             return
-            
         try:
-            headers = self.collections[self.current_collection]
-            
-            # Exportar según el formato seleccionado
-            if format_selected == "csv":
-                self.export_as_csv(filename, headers)
-            elif format_selected == "json":
-                self.export_as_json(filename, headers)
-            elif format_selected == "txt":
-                self.export_as_txt(filename, headers)
-            elif format_selected == "db":
-                self.export_as_sqlite(filename, headers)
-            
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(self.collections[self.current_collection])
+                for row in self.current_data:
+                    writer.writerow(row)
             messagebox.showinfo("Exportar", f"Datos exportados exitosamente a {filename}")
-            
         except Exception as e:
             messagebox.showerror("Error", f"Error al exportar datos: {e}")
-    
-    def export_as_csv(self, filename, headers):
-        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(headers)
-            for row in self.current_data:
-                writer.writerow(row)
-    
-    def export_as_json(self, filename, headers):
-        json_data = []
-        for row in self.current_data:
-            item = {}
-            for i, header in enumerate(headers):
-                item[header] = row[i]
-            json_data.append(item)
-            
-        with open(filename, 'w', encoding='utf-8') as jsonfile:
-            json.dump(json_data, jsonfile, ensure_ascii=False, indent=2)
-    
-    def export_as_txt(self, filename, headers):
-        with open(filename, 'w', encoding='utf-8') as txtfile:
-            # Encabezado
-            header_line = "\t".join(headers)
-            txtfile.write(f"{header_line}\n")
-            txtfile.write("-" * len(header_line) + "\n")
-            
-            # Datos
-            for row in self.current_data:
-                row_text = "\t".join(str(cell) for cell in row)
-                txtfile.write(f"{row_text}\n")
-    
-    def export_as_sqlite(self, filename, headers):
-        # Eliminar el archivo si ya existe
-        if os.path.exists(filename):
-            os.remove(filename)
-            
-        # Crear conexión a la base de datos
-        conn = sqlite3.connect(filename)
-        cursor = conn.cursor()
-        
-        # Crear tabla
-        table_name = self.current_collection
-        fields = ", ".join([f'"{header}" TEXT' for header in headers])
-        cursor.execute(f'CREATE TABLE "{table_name}" ({fields})')
-        
-        # Insertar datos
-        placeholders = ", ".join(["?" for _ in headers])
-        for row in self.current_data:
-            cursor.execute(f'INSERT INTO "{table_name}" VALUES ({placeholders})', row)
-        
-        # Guardar cambios y cerrar
-        conn.commit()
-        conn.close()
 
     def setup_context_menu(self):
         self.context_menu = tk.Menu(self, tearoff=0)
@@ -581,11 +465,6 @@ class FirestoreAdminApp(tk.Tk):
             value_text.config(state=tk.DISABLED)
             value_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-
-def cargando_datos_prints():
-    # Simulación de carga de muchos datos con muchos prints
-    for i in range(1, 10001):
-        print(f"Cargando datos {i}/{10000}")
 
 if __name__ == "__main__":
     app = FirestoreAdminApp()
