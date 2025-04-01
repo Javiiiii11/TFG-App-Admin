@@ -85,7 +85,7 @@ class FirestoreAdminApp(tk.Tk):
         threading.Thread(target=self.init_app, daemon=True).start()
         
         # Iniciar la función cargando_datos_prints en otro hilo
-        threading.Thread(target=cargando_datos_prints, daemon=True).start()
+        # threading.Thread(target=cargando_datos_prints, daemon=True).start()
 
     def init_app(self):
         time.sleep(5)
@@ -319,7 +319,7 @@ class FirestoreAdminApp(tk.Tk):
             # Inicialmente se muestran todos los datos
             self.current_data = self.all_data.copy()
             self.populate_tree()
-            self.status_var.set(f"Mostrando {len(self.current_data)} registros")
+            self.status_var.set(f"Cargandos {len(self.current_data)} registros")
             print(f"Cargados {len(self.current_data)} datos")
         except Exception as e:
             messagebox.showerror("Error de Carga", f"No se pudieron cargar los datos: {e}")
@@ -582,10 +582,10 @@ class FirestoreAdminApp(tk.Tk):
             value_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
 
-def cargando_datos_prints():
-    # Simulación de carga de muchos datos con muchos prints
-    for i in range(1, 10001):
-        print(f"Cargando datos {i}/{10000}")
+# def cargando_datos_prints():
+#     # Simulación de carga de muchos datos con muchos prints
+#     for i in range(1, 10001):
+#         print(f"Cargando datos {i}/{10000}")
 
 if __name__ == "__main__":
     app = FirestoreAdminApp()
