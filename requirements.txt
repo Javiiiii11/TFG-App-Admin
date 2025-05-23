@@ -1,4 +1,2 @@
-firebase-admin==6.3.0
-streamlit==1.32.2
-pandas==2.2.1
-Pillow==11.1.0
+pillow
+firebase-admin
