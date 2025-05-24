@@ -1,8 +1,18 @@
-<!-- ﻿# TFG-App-Admin
-![image](https://github.com/user-attachments/assets/bd25eed5-ae81-4c15-ae40-c0162eccd976)-->
+# ⚠️ ¡IMPORTANTE! ⚠️
+
+**El archivo de credenciales de Firebase que está en este repositorio no funcionará correctamente, ya que Google lo desactiva automáticamente al detectar que ha sido subido a un repositorio público.**
+
+🔄 **Sustituye el archivo `firebase_credentials.json` por el que se ha entregado en Moodle** como parte del proyecto.  
+📁 Asegúrate de colocarlo justo donde esta el otro en el proyecto, para que la aplicación funcione sin problemas.
+
+✅ **Una vez reemplazado, la aplicación funciona correctamente.**
+
+❗ **Cualquier problema de ejecución, comunícaselo a nuestro tutor para que pueda actualizar las credenciales si es necesario.**
+
+
+---
 
 # 🏋️ GymRace Admin
-
 
 **GymRace Admin** es el panel de administración oficial de la aplicación **GymRace**, desarrollada como Trabajo de Fin de Grado del ciclo de Desarrollo de Aplicaciones Multiplataforma. Este panel permite a los administradores gestionar la plataforma de forma eficiente: usuarios, rutinas, desafíos, reportes, dietas y más.
 
@@ -14,12 +24,13 @@ Este proyecto complementa la app principal de GymRace, ofreciendo una interfaz s
 ![image](https://github.com/user-attachments/assets/bd25eed5-ae81-4c15-ae40-c0162eccd976)
 
 ---
+
 ## ✨ Funcionalidades principales
 
 - Gestión de usuarios.
 - Gestión de rutinas públicas
 - Gestión de dietas.
-- Exportacion de la BD.
+- Exportación de la BD.
 
 ---
 
@@ -27,7 +38,7 @@ Este proyecto complementa la app principal de GymRace, ofreciendo una interfaz s
 
 Puedes iniciar sesión con el siguiente usuario de prueba para explorar el panel:
 
-- **Usuario:** `admin`
+- **Usuario:** `admin`  
 - **Contraseña:** `admin123`
 
 ---
@@ -56,4 +67,3 @@ Puedes iniciar sesión con el siguiente usuario de prueba para explorar el panel
    cd gymrace-admin
    pip install -r requirements.txt
    python gymRaceAdmin.py
-   ```
