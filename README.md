@@ -2,7 +2,7 @@
 
 **El archivo de credenciales de Firebase que está en este repositorio no funcionará correctamente, ya que Google lo desactiva automáticamente al detectar que ha sido subido a un repositorio público.**
 
-🔄 **Sustituye el archivo `firebase_credentials.json` por el que se ha entregado en Moodle** como parte del proyecto.  
+🔄 **Sustituye el archivo `firebase_credentials.json` por el que se ha entregado en Moodle** como parte del proyecto, o usa ese proyecto directamente.  
 📁 Asegúrate de colocarlo justo donde esta el otro en el proyecto, para que la aplicación funcione sin problemas.
 
 ✅ **Una vez reemplazado, la aplicación funciona correctamente.**
